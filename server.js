@@ -65,17 +65,19 @@ app.post("/report", async (req, res) => {
 
     const residentData = residentDoc.data();
 
-    const reportData = {
-      category,
-      location,
-      description,
-      proofofReport,
-      reportedBy: uid,
-      residentName: residentData.firstname + " " + residentData.lastname,
-      status: "pending",
-      assignedTo: null, // 🔥 ADD THIS
-      createdAt: Date.now()
-    };
+const reportData = {
+  category,
+  location,
+  description,
+  proofofReport,
+  reportedBy: uid,
+  residentName: residentData.firstname + " " + residentData.lastname,
+  email: residentData.email,        // ✅ ADD THIS
+  contact: residentData.contact,    // ✅ ADD THIS
+  status: "pending",
+  assignedTo: null,
+  createdAt: Date.now()
+};
 
     const reportRef = await db.collection("reports").add(reportData);
 
@@ -288,70 +290,14 @@ app.delete("/delete-account/:uid", async (req, res) => {
 
 app.get("/admin/reports", async (req, res) => {
 
-  const { search = "", status = "", adminId } = req.query;
+  const { search = "", status = "" } = req.query;
 
   try {
 
-    let query = db.collection("reports");
-
-    // 🔥 ONLY SHOW UNASSIGNED REPORTS
-    query = query.where("assignedTo", "==", null);
-
-    const snapshot = await query.get();
-
-    const reports = await Promise.all(
-      snapshot.docs.map(async (doc) => {
-
-        const report = doc.data();
-
-        const residentDoc = await db
-          .collection("residents")
-          .doc(report.reportedBy)
-          .get();
-
-        const resident = residentDoc.data();
-
-        return {
-          id: doc.id,
-          ...report,
-          email: resident?.email || "",
-          contact: resident?.contact || ""
-        };
-
-      })
-    );
-
-    let filtered = reports;
-
-    if (search) {
-      const s = search.toLowerCase();
-      filtered = filtered.filter(r =>
-        r.residentName.toLowerCase().includes(s) ||
-        r.category.toLowerCase().includes(s)
-      );
-    }
-
-    if (status) {
-      filtered = filtered.filter(r => r.status === status);
-    }
-
-    res.json(filtered);
-
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-
-});
-
-app.get("/admin/my-cases/:adminId", async (req, res) => {
-
-  const { adminId } = req.params;
-
-  try {
-
+    // ✅ ONLY UNASSIGNED
     const snapshot = await db
       .collection("reports")
-      .where("assignedTo", "==", adminId)
+      .where("assignedTo", "==", null)
       .get();
 
     const reports = await Promise.all(
@@ -375,6 +321,63 @@ app.get("/admin/my-cases/:adminId", async (req, res) => {
 
       })
     );
+
+    res.json(reports);
+
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+
+});
+
+app.get("/admin/my-cases/:adminId", async (req, res) => {
+
+  const { adminId } = req.params;
+
+  try {
+
+    const snapshot = await db
+      .collection("reports")
+      .where("assignedTo", "==", adminId)
+      .get();
+
+const reports = await Promise.all(
+  snapshot.docs.map(async (doc) => {
+
+    const report = doc.data();
+
+    const residentDoc = await db
+      .collection("residents")
+      .doc(report.reportedBy)
+      .get();
+
+    const resident = residentDoc.data();
+
+    let assignedName = null;
+
+    if (report.assignedTo) {
+      const assignedDoc = await db
+        .collection("residents")
+        .doc(report.assignedTo)
+        .get();
+
+      const assignedData = assignedDoc.data();
+
+      assignedName = assignedData
+        ? assignedData.firstname + " " + assignedData.lastname
+        : null;
+    }
+
+    return {
+      id: doc.id,
+      ...report,
+      email: resident?.email || "",
+      contact: resident?.contact || "",
+      assignedName
+    };
+
+  })
+);
 
     res.json(reports);
 
@@ -665,7 +668,25 @@ app.get("/admin/settings/:type", async (req, res) => {
   }
 });
 
+app.put("/admin/update-ongoing/:id", async (req, res) => {
 
+  const { id } = req.params;
+  const { message } = req.body;
+
+  try {
+
+    await db.collection("reports").doc(id).update({
+      adminMessage: message,   // overwrite OR store latest
+      updatedAt: Date.now()
+    });
+
+    res.json({ message: "Ongoing update sent successfully" });
+
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+
+});
 app.listen(5000, () => {
   console.log("Server running on port 5000");
 });
