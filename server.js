@@ -30,6 +30,7 @@ app.post("/signup", async (req, res) => {
       address,
       role: "resident",
       proofOfResidency,
+      profileImage: "", // ✅ ADD THIS
       acceptedTerms: false,
       isverified: false,
       createdAt: Date.now()
