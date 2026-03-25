@@ -4,7 +4,6 @@ const express = require("express");
 const cors = require("cors");
 const bodyParser = require("body-parser");
 const { admin, db } = require("./firebase");
-const { sendEmail, getReportStatusEmailTemplate } = require('./emailService');  
 const app = express();
 
 // ================= CORS CONFIGURATION =================
@@ -37,8 +36,7 @@ app.use(bodyParser.json());
 app.get('/health', (req, res) => {
   res.json({ 
     status: 'OK', 
-    timestamp: new Date().toISOString(),
-    emailConfigured: !!process.env.EMAIL_USER && !!process.env.EMAIL_PASS
+    timestamp: new Date().toISOString()
   });
 });
 
@@ -177,7 +175,7 @@ app.post("/reject-resident", async (req, res) => {
     const user = await admin.auth().getUserByEmail(email);
     await admin.auth().deleteUser(user.uid);
 
-    console.log(`Rejection email sent to ${email}: ${message}`);
+    console.log(`Rejection notice sent to ${email}: ${message}`);
 
     res.json({ message: "Resident rejected successfully" });
   } catch (error) {
@@ -454,7 +452,7 @@ app.put("/admin/assign-report/:id", async (req, res) => {
   }
 });
 
-// ================= ADMIN: REVIEW REPORT (WITH EMAIL) =================
+// ================= ADMIN: REVIEW REPORT (NO EMAIL) =================
 app.put("/admin/review-report/:id", async (req, res) => {
   const { id } = req.params;
   const { message } = req.body;
@@ -470,32 +468,14 @@ app.put("/admin/review-report/:id", async (req, res) => {
     if (!residentDoc.exists) {
       return res.status(404).json({ message: "Resident not found" });
     }
-    const resident = residentDoc.data();
     
     await db.collection("reports").doc(id).update({
       status: "ongoing",
       adminMessage: message
     });
     
-    const notificationSettings = resident.notificationSettings || { reports: true, news: true };
-    
-    if (notificationSettings.reports && resident.email) {
-      console.log(`📧 Sending review email to: ${resident.email}`);
-      const emailSubject = `Barangay Connecta: Report Under Review - ${report.category}`;
-      const emailHtml = getReportStatusEmailTemplate(
-        `${resident.firstname} ${resident.lastname}`,
-        report.category,
-        "reviewing",
-        message
-      );
-      
-      const emailSent = await sendEmail(resident.email, emailSubject, emailHtml);
-      console.log(`Email sent: ${emailSent ? '✓' : '✗'}`);
-    }
-    
     res.json({ 
-      message: "Report moved to ongoing",
-      emailSent: notificationSettings.reports
+      message: "Report moved to ongoing"
     });
   } catch (error) {
     console.error("Error in review-report:", error);
@@ -503,7 +483,7 @@ app.put("/admin/review-report/:id", async (req, res) => {
   }
 });
 
-// ================= ADMIN: UPDATE ONGOING (WITH EMAIL) =================
+// ================= ADMIN: UPDATE ONGOING (NO EMAIL) =================
 app.put("/admin/update-ongoing/:id", async (req, res) => {
   const { id } = req.params;
   const { message } = req.body;
@@ -513,38 +493,14 @@ app.put("/admin/update-ongoing/:id", async (req, res) => {
     if (!reportDoc.exists) {
       return res.status(404).json({ message: "Report not found" });
     }
-    const report = reportDoc.data();
-    
-    const residentDoc = await db.collection("residents").doc(report.reportedBy).get();
-    if (!residentDoc.exists) {
-      return res.status(404).json({ message: "Resident not found" });
-    }
-    const resident = residentDoc.data();
     
     await db.collection("reports").doc(id).update({
       adminMessage: message,
       updatedAt: Date.now()
     });
     
-    const notificationSettings = resident.notificationSettings || { reports: true, news: true };
-    
-    if (notificationSettings.reports && resident.email) {
-      console.log(`📧 Sending ongoing update email to: ${resident.email}`);
-      const emailSubject = `Barangay Connecta: Report Update - ${report.category}`;
-      const emailHtml = getReportStatusEmailTemplate(
-        `${resident.firstname} ${resident.lastname}`,
-        report.category,
-        "ongoing",
-        message
-      );
-      
-      const emailSent = await sendEmail(resident.email, emailSubject, emailHtml);
-      console.log(`Email sent: ${emailSent ? '✓' : '✗'}`);
-    }
-    
     res.json({ 
-      message: "Ongoing update sent successfully",
-      emailSent: notificationSettings.reports
+      message: "Ongoing update sent successfully"
     });
   } catch (error) {
     console.error("Error in update-ongoing:", error);
@@ -552,7 +508,7 @@ app.put("/admin/update-ongoing/:id", async (req, res) => {
   }
 });
 
-// ================= ADMIN: RESOLVE REPORT (WITH EMAIL) =================
+// ================= ADMIN: RESOLVE REPORT (NO EMAIL) =================
 app.put("/admin/resolve-report/:id", async (req, res) => {
   const { id } = req.params;
   const { message, media } = req.body;
@@ -562,13 +518,6 @@ app.put("/admin/resolve-report/:id", async (req, res) => {
     if (!reportDoc.exists) {
       return res.status(404).json({ message: "Report not found" });
     }
-    const report = reportDoc.data();
-    
-    const residentDoc = await db.collection("residents").doc(report.reportedBy).get();
-    if (!residentDoc.exists) {
-      return res.status(404).json({ message: "Resident not found" });
-    }
-    const resident = residentDoc.data();
     
     await db.collection("reports").doc(id).update({
       status: "resolved",
@@ -576,25 +525,8 @@ app.put("/admin/resolve-report/:id", async (req, res) => {
       resolutionMedia: media
     });
     
-    const notificationSettings = resident.notificationSettings || { reports: true, news: true };
-    
-    if (notificationSettings.reports && resident.email) {
-      console.log(`📧 Sending resolution email to: ${resident.email}`);
-      const emailSubject = `Barangay Connecta: Report Resolved - ${report.category}`;
-      const emailHtml = getReportStatusEmailTemplate(
-        `${resident.firstname} ${resident.lastname}`,
-        report.category,
-        "resolved",
-        message
-      );
-      
-      const emailSent = await sendEmail(resident.email, emailSubject, emailHtml);
-      console.log(`Email sent: ${emailSent ? '✓' : '✗'}`);
-    }
-    
     res.json({ 
-      message: "Report resolved successfully",
-      emailSent: notificationSettings.reports
+      message: "Report resolved successfully"
     });
   } catch (error) {
     console.error("Error in resolve-report:", error);
@@ -684,8 +616,6 @@ app.post("/admin/news", async (req, res) => {
 
     const doc = await db.collection("news").add(post);
     console.log("✅ News post created with ID:", doc.id);
-    
-    // No email notifications for news posts
     
     res.json({
       message: "Post created",
@@ -870,41 +800,8 @@ app.put("/user/notification-settings/:uid", async (req, res) => {
   }
 });
 
-// ================= TEST ENDPOINTS =================
-app.get("/test-email", async (req, res) => {
-  try {
-    const testResult = await sendEmail(
-      process.env.EMAIL_USER,
-      "Test Email from Barangay Connecta",
-      "<h1>Test Successful!</h1><p>If you received this, email notifications are working!</p>"
-    );
-    
-    res.json({ 
-      success: testResult,
-      message: testResult ? "Email sent successfully" : "Email failed to send",
-      emailConfigured: !!process.env.EMAIL_USER && !!process.env.EMAIL_PASS
-    });
-  } catch (error) {
-    console.error("Test email error:", error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.get("/check-email-config", (req, res) => {
-  res.json({
-    emailUserConfigured: !!process.env.EMAIL_USER,
-    emailPassConfigured: !!process.env.EMAIL_PASS,
-    emailUserLength: process.env.EMAIL_USER?.length || 0,
-    emailPassLength: process.env.EMAIL_PASS?.length || 0,
-    emailPassPreview: process.env.EMAIL_PASS ? 
-      `${process.env.EMAIL_PASS.substring(0, 4)}...${process.env.EMAIL_PASS.substring(process.env.EMAIL_PASS.length - 4)}` : 
-      "Not set"
-  });
-});
-
 // ================= START SERVER =================
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`✅ Server running on port ${PORT}`);
-  console.log(`📧 Email configured: ${!!process.env.EMAIL_USER && !!process.env.EMAIL_PASS}`);
 });
