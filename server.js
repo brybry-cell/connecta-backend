@@ -175,9 +175,14 @@ app.post("/reject-resident", async (req, res) => {
     const user = await admin.auth().getUserByEmail(email);
     await admin.auth().deleteUser(user.uid);
 
-    console.log(`Rejection notice sent to ${email}: ${message}`);
+    // ✅ SEND EMAIL HERE
+    await sendEmail(
+      email,
+      "Application Rejected",
+      `Your application has been rejected.\n\nReason:\n${message}`
+    );
 
-    res.json({ message: "Resident rejected successfully" });
+    res.json({ message: "Resident rejected and email sent" });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
