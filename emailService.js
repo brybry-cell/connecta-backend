@@ -43,6 +43,57 @@ const getReportStatusEmailTemplate = (residentName, reportCategory, status, mess
     resolved: 'resolved'
   };
 
+  // emailService.js
+const nodemailer = require('nodemailer');
+
+console.log("📧 Loading email service...");
+console.log("EMAIL_USER exists:", !!process.env.EMAIL_USER);
+console.log("EMAIL_PASS exists:", !!process.env.EMAIL_PASS);
+
+// Configure email transporter (using Gmail)
+const transporter = nodemailer.createTransport({
+  service: 'gmail',
+  auth: {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASS
+  }
+});
+
+// Verify email configuration on startup
+transporter.verify((error, success) => {
+  if (error) {
+    console.error('❌ Email configuration error:', error.message);
+  } else {
+    console.log('✅ Email server is ready to send messages');
+  }
+});
+
+// Function to send email
+const sendEmail = async (to, subject, html) => {
+  // Don't attempt to send if credentials are missing
+  if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
+    console.error('❌ Email credentials missing. Skipping email send.');
+    return false;
+  }
+
+  try {
+    const mailOptions = {
+      from: `"Barangay Connecta" <${process.env.EMAIL_USER}>`,
+      to: to,
+      subject: subject,
+      html: html
+    };
+
+    console.log(`📧 Attempting to send email to: ${to}`);
+    const info = await transporter.sendMail(mailOptions);
+    console.log('✅ Email sent:', info.messageId);
+    return true;
+  } catch (error) {
+    console.error('❌ Error sending email:', error.message);
+    return false;
+  }
+};
+
   return `
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 10px;">
       <div style="text-align: center; padding-bottom: 20px; border-bottom: 2px solid ${statusColors[status] || '#007CCF'}">

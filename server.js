@@ -422,54 +422,196 @@ app.put("/admin/assign-report/:id", async (req, res) => {
   }
 });
 
-// ================= ADMIN: REVIEW REPORT =================
+// ================= ADMIN: REVIEW REPORT (WITH EMAIL) =================
 app.put("/admin/review-report/:id", async (req, res) => {
   const { id } = req.params;
   const { message } = req.body;
 
   try {
+    // Get report details
+    const reportDoc = await db.collection("reports").doc(id).get();
+    if (!reportDoc.exists) {
+      return res.status(404).json({ message: "Report not found" });
+    }
+    const report = reportDoc.data();
+    
+    // Get resident details
+    const residentDoc = await db.collection("residents").doc(report.reportedBy).get();
+    if (!residentDoc.exists) {
+      return res.status(404).json({ message: "Resident not found" });
+    }
+    const resident = residentDoc.data();
+    
+    // Update report status
     await db.collection("reports").doc(id).update({
       status: "ongoing",
       adminMessage: message
     });
-
-    res.json({ message: "Report moved to ongoing" });
+    
+    // Check notification settings and send email
+    const notificationSettings = resident.notificationSettings || { reports: true, news: true };
+    
+    if (notificationSettings.reports && resident.email) {
+      console.log(`📧 Sending review email to: ${resident.email}`);
+      const emailSubject = `Barangay Connecta: Report Under Review - ${report.category}`;
+      const emailHtml = getReportStatusEmailTemplate(
+        `${resident.firstname} ${resident.lastname}`,
+        report.category,
+        "reviewing",
+        message
+      );
+      
+      const emailSent = await sendEmail(resident.email, emailSubject, emailHtml);
+      console.log(`Email sent: ${emailSent ? '✓' : '✗'}`);
+    } else {
+      console.log(`⊘ Skipping email to ${resident.email} - notifications disabled or no email`);
+    }
+    
+    res.json({ 
+      message: "Report moved to ongoing",
+      emailSent: notificationSettings.reports
+    });
   } catch (error) {
+    console.error("Error in review-report:", error);
     res.status(500).json({ error: error.message });
   }
 });
 
-// ================= ADMIN: UPDATE ONGOING =================
+// ================= ADMIN: UPDATE ONGOING (WITH EMAIL) =================
 app.put("/admin/update-ongoing/:id", async (req, res) => {
   const { id } = req.params;
   const { message } = req.body;
 
   try {
+    // Get report details
+    const reportDoc = await db.collection("reports").doc(id).get();
+    if (!reportDoc.exists) {
+      return res.status(404).json({ message: "Report not found" });
+    }
+    const report = reportDoc.data();
+    
+    // Get resident details
+    const residentDoc = await db.collection("residents").doc(report.reportedBy).get();
+    if (!residentDoc.exists) {
+      return res.status(404).json({ message: "Resident not found" });
+    }
+    const resident = residentDoc.data();
+    
+    // Update report
     await db.collection("reports").doc(id).update({
       adminMessage: message,
       updatedAt: Date.now()
     });
-
-    res.json({ message: "Ongoing update sent successfully" });
+    
+    // Check notification settings and send email
+    const notificationSettings = resident.notificationSettings || { reports: true, news: true };
+    
+    if (notificationSettings.reports && resident.email) {
+      console.log(`📧 Sending ongoing update email to: ${resident.email}`);
+      const emailSubject = `Barangay Connecta: Report Update - ${report.category}`;
+      const emailHtml = getReportStatusEmailTemplate(
+        `${resident.firstname} ${resident.lastname}`,
+        report.category,
+        "ongoing",
+        message
+      );
+      
+      const emailSent = await sendEmail(resident.email, emailSubject, emailHtml);
+      console.log(`Email sent: ${emailSent ? '✓' : '✗'}`);
+    } else {
+      console.log(`⊘ Skipping email to ${resident.email} - notifications disabled or no email`);
+    }
+    
+    res.json({ 
+      message: "Ongoing update sent successfully",
+      emailSent: notificationSettings.reports
+    });
   } catch (error) {
+    console.error("Error in update-ongoing:", error);
     res.status(500).json({ error: error.message });
   }
 });
 
-// ================= ADMIN: RESOLVE REPORT =================
+// ================= ADMIN: RESOLVE REPORT (WITH EMAIL) =================
 app.put("/admin/resolve-report/:id", async (req, res) => {
   const { id } = req.params;
   const { message, media } = req.body;
 
   try {
+    // Get report details
+    const reportDoc = await db.collection("reports").doc(id).get();
+    if (!reportDoc.exists) {
+      return res.status(404).json({ message: "Report not found" });
+    }
+    const report = reportDoc.data();
+    
+    // Get resident details
+    const residentDoc = await db.collection("residents").doc(report.reportedBy).get();
+    if (!residentDoc.exists) {
+      return res.status(404).json({ message: "Resident not found" });
+    }
+    const resident = residentDoc.data();
+    
+    // Update report
     await db.collection("reports").doc(id).update({
       status: "resolved",
       resolutionMessage: message,
       resolutionMedia: media
     });
-
-    res.json({ message: "Report resolved successfully" });
+    
+    // Check notification settings and send email
+    const notificationSettings = resident.notificationSettings || { reports: true, news: true };
+    
+    if (notificationSettings.reports && resident.email) {
+      console.log(`📧 Sending resolution email to: ${resident.email}`);
+      const emailSubject = `Barangay Connecta: Report Resolved - ${report.category}`;
+      const emailHtml = getReportStatusEmailTemplate(
+        `${resident.firstname} ${resident.lastname}`,
+        report.category,
+        "resolved",
+        message
+      );
+      
+      const emailSent = await sendEmail(resident.email, emailSubject, emailHtml);
+      console.log(`Email sent: ${emailSent ? '✓' : '✗'}`);
+    } else {
+      console.log(`⊘ Skipping email to ${resident.email} - notifications disabled or no email`);
+    }
+    
+    res.json({ 
+      message: "Report resolved successfully",
+      emailSent: notificationSettings.reports
+    });
   } catch (error) {
+    console.error("Error in resolve-report:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Add this endpoint to test report email notifications
+app.post("/test-report-email", async (req, res) => {
+  const { email, reportCategory, status, message } = req.body;
+  
+  try {
+    const testEmailHtml = getReportStatusEmailTemplate(
+      "Test Resident",
+      reportCategory || "Test Report",
+      status || "reviewing",
+      message || "This is a test email to verify report notifications are working."
+    );
+    
+    const result = await sendEmail(
+      email || process.env.EMAIL_USER,
+      "Test Report Notification",
+      testEmailHtml
+    );
+    
+    res.json({ 
+      success: result,
+      message: result ? "Test email sent successfully" : "Failed to send test email"
+    });
+  } catch (error) {
+    console.error("Test report email error:", error);
     res.status(500).json({ error: error.message });
   }
 });
