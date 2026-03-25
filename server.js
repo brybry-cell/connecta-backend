@@ -249,7 +249,7 @@ app.get("/reports/:uid", async (req, res) => {
   }
 });
 
-// ================= RESIDENT DETAILS =================
+// ================= RESIDENT DETAILS (with combined permissions) =================
 app.get("/resident/:uid", async (req, res) => {
   const { uid } = req.params;
 
@@ -261,16 +261,34 @@ app.get("/resident/:uid", async (req, res) => {
     }
 
     const data = doc.data();
+    
+    // Get role permissions
+    let rolePermissions = [];
+    if (data.role && data.role !== "resident") {
+      const rolesDoc = await db.collection("system_settings").doc("roles").get();
+      if (rolesDoc.exists) {
+        const rolesData = rolesDoc.data();
+        const role = rolesData.roles?.find(r => r.name === data.role);
+        rolePermissions = role?.permissions || [];
+      }
+    }
+    
+    // Combine role permissions with custom permissions
+    const customPermissions = data.customPermissions || [];
+    const allPermissions = [...new Set([...rolePermissions, ...customPermissions])];
+    
     res.json({
       uid: doc.id,
       ...data,
-      profileImage: data.profileImage || ""
+      profileImage: data.profileImage || "",
+      permissions: allPermissions, // Send combined permissions
+      rolePermissions: rolePermissions,
+      customPermissions: customPermissions
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
-
 // ================= UPDATE ACCOUNT =================
 app.put("/update-account/:uid", async (req, res) => {
   const { uid } = req.params;
