@@ -4,10 +4,10 @@ const express = require("express");
 const cors = require("cors");
 const bodyParser = require("body-parser");
 const { admin, db } = require("./firebase");
-const { sendEmail, getReportStatusEmailTemplate, getNewsNotificationEmailTemplate } = require('./emailService');  
+const { sendEmail, getReportStatusEmailTemplate } = require('./emailService');  
 const app = express();
 
-// ================= FIXED CORS CONFIGURATION =================
+// ================= CORS CONFIGURATION =================
 const allowedOrigins = [
   'https://webconnecta-admin.web.app',
   'https://webconnecta-resident.web.app',
@@ -18,14 +18,11 @@ const allowedOrigins = [
 
 app.use(cors({
   origin: function(origin, callback) {
-    // Allow requests with no origin (like mobile apps or curl requests)
     if (!origin) return callback(null, true);
-    
     if (allowedOrigins.indexOf(origin) !== -1) {
       callback(null, true);
     } else {
       console.log('⚠️ Blocked origin:', origin);
-      // For development, allow all
       callback(null, true);
     }
   },
@@ -33,9 +30,6 @@ app.use(cors({
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
 }));
-
-// Handle preflight requests
-app.options('*', cors());
 
 app.use(bodyParser.json());
 
@@ -651,7 +645,7 @@ app.post("/create-staff", async (req, res) => {
   }
 });
 
-// ================= NEWS POSTS (WITH EMAIL NOTIFICATIONS) =================
+// ================= NEWS POSTS (NO EMAIL NOTIFICATIONS) =================
 app.post("/admin/news", async (req, res) => {
   const {
     title,
@@ -690,44 +684,8 @@ app.post("/admin/news", async (req, res) => {
 
     const doc = await db.collection("news").add(post);
     console.log("✅ News post created with ID:", doc.id);
-
-    if (status === "Published" || !schedule) {
-      console.log("📧 Sending news notifications to residents...");
-      
-      const residentsSnapshot = await db.collection("residents")
-        .where("isverified", "==", true)
-        .get();
-      
-      console.log(`👥 Found ${residentsSnapshot.size} verified residents`);
-      
-      let emailCount = 0;
-      
-      for (const residentDoc of residentsSnapshot.docs) {
-        const resident = residentDoc.data();
-        const notificationSettings = resident.notificationSettings || { reports: true, news: true };
-        
-        if (notificationSettings.news && resident.email) {
-          console.log(`📤 Sending email to: ${resident.email}`);
-          
-          const emailSubject = `Barangay Connecta: New ${category} - ${title}`;
-          const emailHtml = getNewsNotificationEmailTemplate(
-            title,
-            category,
-            description,
-            adminData.firstname + " " + adminData.lastname
-          );
-          
-          try {
-            const emailResult = await sendEmail(resident.email, emailSubject, emailHtml);
-            if (emailResult) emailCount++;
-          } catch (emailError) {
-            console.error(`✗ Error sending email to ${resident.email}:`, emailError);
-          }
-        }
-      }
-      
-      console.log(`📊 News notification summary: Sent ${emailCount} emails`);
-    }
+    
+    // No email notifications for news posts
     
     res.json({
       message: "Post created",
