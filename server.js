@@ -1,10 +1,11 @@
+require('dotenv').config();
+
 const express = require("express");
 const cors = require("cors");
 const bodyParser = require("body-parser");
 const { admin, db } = require("./firebase");
 const { sendEmail, getReportStatusEmailTemplate, getNewsNotificationEmailTemplate } = require('./emailService');  
 const app = express();
-require('dotenv').config();
 
 app.use(cors());
 app.use(bodyParser.json());
