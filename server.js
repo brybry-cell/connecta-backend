@@ -987,6 +987,38 @@ app.post("/admin/news", async (req, res) => {
   }
 });
 
+// Add this to your server.js for testing
+app.get("/test-email", async (req, res) => {
+  try {
+    const testResult = await sendEmail(
+      process.env.EMAIL_USER, // Send to yourself
+      "Test Email from Barangay Connecta",
+      "<h1>Test Successful!</h1><p>If you received this, email notifications are working!</p>"
+    );
+    
+    res.json({ 
+      success: testResult,
+      message: testResult ? "Email sent successfully" : "Email failed to send",
+      emailConfigured: !!process.env.EMAIL_USER && !!process.env.EMAIL_PASS
+    });
+  } catch (error) {
+    console.error("Test email error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Add to server.js
+app.get("/check-email-config", (req, res) => {
+  res.json({
+    emailUserConfigured: !!process.env.EMAIL_USER,
+    emailPassConfigured: !!process.env.EMAIL_PASS,
+    emailUserLength: process.env.EMAIL_USER?.length || 0,
+    emailPassLength: process.env.EMAIL_PASS?.length || 0,
+    emailPassPreview: process.env.EMAIL_PASS ? 
+      `${process.env.EMAIL_PASS.substring(0, 4)}...${process.env.EMAIL_PASS.substring(process.env.EMAIL_PASS.length - 4)}` : 
+      "Not set"
+  });
+});
 // ================= START SERVER =================
 app.listen(5000, () => {
   console.log("Server running on port 5000");
