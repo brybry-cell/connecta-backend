@@ -30,7 +30,7 @@ app.post("/signup", async (req, res) => {
       address,
       role: "resident",
       proofOfResidency,
-      profileImage: "", // ✅ Profile image field
+      profileImage: "",
       acceptedTerms: false,
       isverified: false,
       createdAt: Date.now()
@@ -101,7 +101,7 @@ app.get("/pending-residents", async (req, res) => {
     const residents = snapshot.docs.map(doc => ({
       uid: doc.id,
       ...doc.data(),
-      profileImage: doc.data().profileImage || "" // ✅ Ensure profileImage is included
+      profileImage: doc.data().profileImage || ""
     }));
 
     res.json(residents);
@@ -130,7 +130,6 @@ app.post("/reject-resident", async (req, res) => {
   const { email, message } = req.body;
 
   try {
-    // Find user by email
     const snapshot = await db
       .collection("residents")
       .where("email", "==", email)
@@ -143,11 +142,9 @@ app.post("/reject-resident", async (req, res) => {
     const userDoc = snapshot.docs[0];
     await db.collection("residents").doc(userDoc.id).delete();
 
-    // Also delete from Firebase Auth
     const user = await admin.auth().getUserByEmail(email);
     await admin.auth().deleteUser(user.uid);
 
-    // Here you would send an email notification
     console.log(`Rejection email sent to ${email}: ${message}`);
 
     res.json({ message: "Resident rejected successfully" });
@@ -165,7 +162,7 @@ app.get("/staffs", async (req, res) => {
       .map(doc => ({
         uid: doc.id,
         ...doc.data(),
-        profileImage: doc.data().profileImage || "" // ✅ Ensure profileImage is included
+        profileImage: doc.data().profileImage || ""
       }))
       .filter(user => user.role !== "resident");
 
@@ -187,7 +184,7 @@ app.get("/residents", async (req, res) => {
     const residents = snapshot.docs.map(doc => ({
       uid: doc.id,
       ...doc.data(),
-      profileImage: doc.data().profileImage || "" // ✅ Ensure profileImage is included
+      profileImage: doc.data().profileImage || ""
     }));
 
     res.json(residents);
@@ -232,7 +229,7 @@ app.get("/resident/:uid", async (req, res) => {
     res.json({
       uid: doc.id,
       ...data,
-      profileImage: data.profileImage || "" // ✅ Ensure profileImage is included
+      profileImage: data.profileImage || ""
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -263,10 +260,9 @@ app.put("/update-account/:uid", async (req, res) => {
       email,
       contact,
       address,
-      profileImage // ✅ Include profileImage
+      profileImage
     };
 
-    // If role is provided (for staff updates), include it
     if (role) {
       updateData.role = role;
     }
@@ -510,7 +506,7 @@ app.post("/create-staff", async (req, res) => {
       address: "",
       role,
       permissions: permissions || [],
-      profileImage: "", // ✅ Profile image field
+      profileImage: "",
       isverified: true,
       createdAt: Date.now()
     });
@@ -521,7 +517,7 @@ app.post("/create-staff", async (req, res) => {
   }
 });
 
-// ================= NEWS POSTS =================
+// ================= NEWS POSTS (SINGLE ENDPOINT WITH EMAIL NOTIFICATIONS) =================
 app.post("/admin/news", async (req, res) => {
   const {
     title,
@@ -533,10 +529,13 @@ app.post("/admin/news", async (req, res) => {
     adminUID
   } = req.body;
 
+  console.log("📰 Creating news post:", { title, category, status, adminUID });
+
   try {
     const adminDoc = await db.collection("residents").doc(adminUID).get();
 
     if (!adminDoc.exists) {
+      console.error("❌ Admin not found:", adminUID);
       return res.status(404).json({ message: "Admin not found" });
     }
 
@@ -556,16 +555,74 @@ app.post("/admin/news", async (req, res) => {
     };
 
     const doc = await db.collection("news").add(post);
+    console.log("✅ News post created with ID:", doc.id);
 
+    // Only send notifications if it's published (not scheduled)
+    if (status === "Published" || !schedule) {
+      console.log("📧 Sending news notifications to residents...");
+      
+      // Get all verified residents
+      const residentsSnapshot = await db.collection("residents")
+        .where("isverified", "==", true)
+        .get();
+      
+      console.log(`👥 Found ${residentsSnapshot.size} verified residents`);
+      
+      let emailCount = 0;
+      let skippedCount = 0;
+      
+      for (const residentDoc of residentsSnapshot.docs) {
+        const resident = residentDoc.data();
+        const notificationSettings = resident.notificationSettings || { reports: true, news: true };
+        
+        if (notificationSettings.news && resident.email) {
+          console.log(`📤 Sending email to: ${resident.email} (${resident.firstname} ${resident.lastname})`);
+          
+          const emailSubject = `Barangay Connecta: New ${category} - ${title}`;
+          const emailHtml = getNewsNotificationEmailTemplate(
+            title,
+            category,
+            description,
+            adminData.firstname + " " + adminData.lastname
+          );
+          
+          try {
+            const emailResult = await sendEmail(resident.email, emailSubject, emailHtml);
+            if (emailResult) {
+              emailCount++;
+              console.log(`✓ Email sent to ${resident.email}`);
+            } else {
+              console.log(`✗ Failed to send email to ${resident.email}`);
+            }
+          } catch (emailError) {
+            console.error(`✗ Error sending email to ${resident.email}:`, emailError);
+          }
+        } else {
+          if (!notificationSettings.news) {
+            console.log(`⊘ Skipping ${resident.email} - news notifications disabled`);
+          } else if (!resident.email) {
+            console.log(`⊘ Skipping resident - no email address`);
+          }
+          skippedCount++;
+        }
+      }
+      
+      console.log(`📊 News notification summary: Sent ${emailCount} emails, Skipped ${skippedCount} residents`);
+    } else {
+      console.log("⏰ Post is scheduled, will send notifications when published");
+    }
+    
     res.json({
       message: "Post created",
       id: doc.id
     });
   } catch (err) {
+    console.error("❌ Error creating news post:", err);
     res.status(500).json({ error: err.message });
   }
 });
 
+// Get news for public (residents)
 app.get("/news", async (req, res) => {
   try {
     const snapshot = await db.collection("news")
@@ -597,6 +654,7 @@ app.get("/news", async (req, res) => {
   }
 });
 
+// Get all news for admin (including scheduled)
 app.get("/admin/news", async (req, res) => {
   try {
     const snapshot = await db.collection("news")
@@ -608,30 +666,39 @@ app.get("/admin/news", async (req, res) => {
       ...doc.data()
     }));
 
+    console.log(`📋 Fetched ${posts.length} posts for admin`);
     res.json(posts);
   } catch (err) {
+    console.error("❌ Error fetching admin news:", err);
     res.status(500).json({ error: err.message });
   }
 });
 
+// Update news post
 app.put("/admin/news/:id", async (req, res) => {
   const { id } = req.params;
+  const updates = req.body;
 
   try {
-    await db.collection("news").doc(id).update(req.body);
+    await db.collection("news").doc(id).update(updates);
+    console.log(`✏️ Updated news post: ${id}`);
     res.json({ message: "Post updated" });
   } catch (err) {
+    console.error("❌ Error updating news post:", err);
     res.status(500).json({ error: err.message });
   }
 });
 
+// Delete news post
 app.delete("/admin/news/:id", async (req, res) => {
   const { id } = req.params;
 
   try {
     await db.collection("news").doc(id).delete();
+    console.log(`🗑️ Deleted news post: ${id}`);
     res.json({ message: "Post deleted" });
   } catch (err) {
+    console.error("❌ Error deleting news post:", err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -685,7 +752,6 @@ app.put("/update-staff-permissions/:uid", async (req, res) => {
 });
 
 // ================= USER NOTIFICATION SETTINGS =================
-// Get user notification settings
 app.get("/user/notification-settings/:uid", async (req, res) => {
   const { uid } = req.params;
   
@@ -708,7 +774,6 @@ app.get("/user/notification-settings/:uid", async (req, res) => {
   }
 });
 
-// Update user notification settings
 app.put("/user/notification-settings/:uid", async (req, res) => {
   const { uid } = req.params;
   const { reports, news } = req.body;
@@ -730,268 +795,11 @@ app.put("/user/notification-settings/:uid", async (req, res) => {
   }
 });
 
-// ================= UPDATE REPORT STATUS WITH EMAIL =================
-// Update this endpoint to send email
-app.put("/admin/update-report-status/:id", async (req, res) => {
-  const { id } = req.params;
-  const { status, message, adminId } = req.body;
-  
-  try {
-    // Get report details
-    const reportDoc = await db.collection("reports").doc(id).get();
-    
-    if (!reportDoc.exists) {
-      return res.status(404).json({ message: "Report not found" });
-    }
-    
-    const report = reportDoc.data();
-    
-    // Get resident details
-    const residentDoc = await db.collection("residents").doc(report.reportedBy).get();
-    
-    if (!residentDoc.exists) {
-      return res.status(404).json({ message: "Resident not found" });
-    }
-    
-    const resident = residentDoc.data();
-    
-    // Update report status
-    await db.collection("reports").doc(id).update({
-      status: status,
-      adminMessage: message,
-      updatedAt: Date.now(),
-      assignedTo: adminId
-    });
-    
-    // Check if user has enabled notifications for reports
-    const notificationSettings = resident.notificationSettings || { reports: true, news: true };
-    
-    if (notificationSettings.reports) {
-      // Send email notification
-      const emailSubject = `Barangay Connecta: Report Status Update - ${report.category}`;
-      const emailHtml = getReportStatusEmailTemplate(
-        `${resident.firstname} ${resident.lastname}`,
-        report.category,
-        status,
-        message
-      );
-      
-      await sendEmail(resident.email, emailSubject, emailHtml);
-    }
-    
-    res.json({ 
-      message: "Report status updated successfully",
-      emailSent: notificationSettings.reports
-    });
-  } catch (error) {
-    console.error("Error updating report status:", error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Update the review report endpoint
-app.put("/admin/review-report/:id", async (req, res) => {
-  const { id } = req.params;
-  const { message } = req.body;
-  
-  try {
-    // Get report details
-    const reportDoc = await db.collection("reports").doc(id).get();
-    const report = reportDoc.data();
-    
-    // Get resident details
-    const residentDoc = await db.collection("residents").doc(report.reportedBy).get();
-    const resident = residentDoc.data();
-    
-    await db.collection("reports").doc(id).update({
-      status: "ongoing",
-      adminMessage: message
-    });
-    
-    // Check notification settings
-    const notificationSettings = resident.notificationSettings || { reports: true, news: true };
-    
-    if (notificationSettings.reports) {
-      const emailSubject = `Barangay Connecta: Report Under Review - ${report.category}`;
-      const emailHtml = getReportStatusEmailTemplate(
-        `${resident.firstname} ${resident.lastname}`,
-        report.category,
-        "reviewing",
-        message
-      );
-      
-      await sendEmail(resident.email, emailSubject, emailHtml);
-    }
-    
-    res.json({ message: "Report moved to ongoing" });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Update the ongoing update endpoint
-app.put("/admin/update-ongoing/:id", async (req, res) => {
-  const { id } = req.params;
-  const { message } = req.body;
-  
-  try {
-    // Get report details
-    const reportDoc = await db.collection("reports").doc(id).get();
-    const report = reportDoc.data();
-    
-    // Get resident details
-    const residentDoc = await db.collection("residents").doc(report.reportedBy).get();
-    const resident = residentDoc.data();
-    
-    await db.collection("reports").doc(id).update({
-      adminMessage: message,
-      updatedAt: Date.now()
-    });
-    
-    // Check notification settings
-    const notificationSettings = resident.notificationSettings || { reports: true, news: true };
-    
-    if (notificationSettings.reports) {
-      const emailSubject = `Barangay Connecta: Report Update - ${report.category}`;
-      const emailHtml = getReportStatusEmailTemplate(
-        `${resident.firstname} ${resident.lastname}`,
-        report.category,
-        "ongoing",
-        message
-      );
-      
-      await sendEmail(resident.email, emailSubject, emailHtml);
-    }
-    
-    res.json({ message: "Ongoing update sent successfully" });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Update the resolve report endpoint
-app.put("/admin/resolve-report/:id", async (req, res) => {
-  const { id } = req.params;
-  const { message, media } = req.body;
-  
-  try {
-    // Get report details
-    const reportDoc = await db.collection("reports").doc(id).get();
-    const report = reportDoc.data();
-    
-    // Get resident details
-    const residentDoc = await db.collection("residents").doc(report.reportedBy).get();
-    const resident = residentDoc.data();
-    
-    await db.collection("reports").doc(id).update({
-      status: "resolved",
-      resolutionMessage: message,
-      resolutionMedia: media
-    });
-    
-    // Check notification settings
-    const notificationSettings = resident.notificationSettings || { reports: true, news: true };
-    
-    if (notificationSettings.reports) {
-      const emailSubject = `Barangay Connecta: Report Resolved - ${report.category}`;
-      const emailHtml = getReportStatusEmailTemplate(
-        `${resident.firstname} ${resident.lastname}`,
-        report.category,
-        "resolved",
-        message
-      );
-      
-      await sendEmail(resident.email, emailSubject, emailHtml);
-    }
-    
-    res.json({ message: "Report resolved successfully" });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Update news creation endpoint to send notifications
-app.post("/admin/news", async (req, res) => {
-  const {
-    title,
-    category,
-    description,
-    media,
-    status,
-    schedule,
-    adminUID
-  } = req.body;
-  
-  try {
-    const adminDoc = await db.collection("residents").doc(adminUID).get();
-    
-    if (!adminDoc.exists) {
-      return res.status(404).json({ message: "Admin not found" });
-    }
-    
-    const adminData = adminDoc.data();
-    
-    const post = {
-      title,
-      category,
-      description,
-      media,
-      status,
-      schedule,
-      adminUID,
-      postedBy: adminData.firstname + " " + adminData.lastname,
-      role: adminData.role,
-      createdAt: Date.now()
-    };
-    
-    const doc = await db.collection("news").add(post);
-    
-    // Only send notifications if it's published (not scheduled)
-    if (status === "Published" || !schedule) {
-      // Get all residents with news notifications enabled
-      const residentsSnapshot = await db.collection("residents")
-        .where("isverified", "==", true)
-        .get();
-      
-      const emailPromises = [];
-      
-      for (const residentDoc of residentsSnapshot.docs) {
-        const resident = residentDoc.data();
-        const notificationSettings = resident.notificationSettings || { reports: true, news: true };
-        
-        if (notificationSettings.news && resident.email) {
-          const emailSubject = `Barangay Connecta: New ${category} - ${title}`;
-          const emailHtml = getNewsNotificationEmailTemplate(
-            title,
-            category,
-            description,
-            adminData.firstname + " " + adminData.lastname
-          );
-          
-          emailPromises.push(sendEmail(resident.email, emailSubject, emailHtml));
-        }
-      }
-      
-      // Send all emails in parallel (don't wait for completion to avoid delaying response)
-      Promise.all(emailPromises).catch(error => {
-        console.error("Error sending news notification emails:", error);
-      });
-    }
-    
-    res.json({
-      message: "Post created",
-      id: doc.id
-    });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Add this to your server.js for testing
+// ================= TEST ENDPOINTS =================
 app.get("/test-email", async (req, res) => {
   try {
     const testResult = await sendEmail(
-      process.env.EMAIL_USER, // Send to yourself
+      process.env.EMAIL_USER,
       "Test Email from Barangay Connecta",
       "<h1>Test Successful!</h1><p>If you received this, email notifications are working!</p>"
     );
@@ -1007,7 +815,6 @@ app.get("/test-email", async (req, res) => {
   }
 });
 
-// Add to server.js
 app.get("/check-email-config", (req, res) => {
   res.json({
     emailUserConfigured: !!process.env.EMAIL_USER,
@@ -1019,7 +826,9 @@ app.get("/check-email-config", (req, res) => {
       "Not set"
   });
 });
+
 // ================= START SERVER =================
-app.listen(5000, () => {
-  console.log("Server running on port 5000");
+const PORT = process.env.PORT || 5000;
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
 });
