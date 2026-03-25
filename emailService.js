@@ -10,16 +10,21 @@ const transporter = nodemailer.createTransport({
 
 const sendEmail = async (to, subject, text) => {
   try {
-    await transporter.sendMail({
-      from: `"Connecta" <${process.env.EMAIL_USER}>`,
+    console.log("Sending email to:", to); // 👈 PUT IT HERE
+
+    const info = await transporter.sendMail({
+      from: process.env.EMAIL_USER,
       to,
       subject,
       text
     });
 
+    console.log("EMAIL SENT:", info.response); // 👈 ALSO ADD THIS
+
     return true;
-  } catch (error) {
-    console.error("Email error:", error);
+  } catch (err) {
+    console.error("EMAIL ERROR:", err); // 👈 AND THIS
+
     return false;
   }
 };
